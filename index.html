@@ -6,6 +6,7 @@
   <title>85 Collective</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://www.youtube.com/iframe_api"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -18,68 +19,93 @@
     .card:hover .ov { opacity: 1; }
     .card .ti { transition: transform .4s ease; }
     .card:hover .ti { transform: scale(1.05); }
-    .nb { transition: color .15s; }
     .nb:hover { color: #111 !important; }
     .btn-w:hover { background: #333 !important; }
     .btn-l:hover { background: #f5f5f5 !important; }
     .wbtn:hover { background: rgba(255,255,255,.15) !important; }
+    .pl-tab:hover { color: #111 !important; }
+    .prog-bar { cursor: pointer; }
+    .prog-bar:hover .prog-fill { background: #555 !important; }
+    .prog-bar:hover .prog-dot { opacity: 1 !important; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    ::-webkit-scrollbar { height: 0; }
   </style>
 </head>
 <body>
   <div id="root"></div>
+  <div id="yt-player-container" style="position:fixed;top:-9999px;left:0;width:1px;height:1px;overflow:hidden;">
+    <div id="yt-player"></div>
+  </div>
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
+    const { useState, useRef, useEffect, useCallback } = React;
 
-    // ── YOUR CONFIG ───────────────────────────────────────────────────
-    const API_KEY       = "AIzaSyCzTFNBhEJJXsWo8TMPlDUQkEEaw5cRAGs";   // ← paste your key here
-    const CHANNEL_HANDLE = "@85collective";          // ← your channel handle
+    // ── YOUR CONFIG ──────────────────────────────────────────────────
+    const API_KEY        = "AIzaSyCzTFNBhEJJXsWo8TMPlDUQkEEaw5cRAGs";
+    const CHANNEL_HANDLE = "@85collective";
     const CHANNEL_URL    = "https://www.youtube.com/@85collective";
     // ─────────────────────────────────────────────────────────────────
 
-    const YT = "https://www.googleapis.com/youtube/v3";
+    const YT_API = "https://www.googleapis.com/youtube/v3";
 
-    async function fetchAllVideos() {
-      // 1. Get uploads playlist ID
-      const chRes = await fetch(
-        `${YT}/channels?part=contentDetails&forHandle=${CHANNEL_HANDLE}&key=${API_KEY}`
-      );
-      const chData = await chRes.json();
-      if (!chData.items?.length) throw new Error("Channel not found");
-      const uploadsId = chData.items[0].contentDetails.relatedPlaylists.uploads;
+    const fmt = s => {
+      if (!s || isNaN(s)) return "0:00";
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+      return h > 0 ? `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}` : `${m}:${String(sec).padStart(2,"0")}`;
+    };
 
-      // 2. Page through all videos in uploads playlist
+    async function fetchChannel() {
+      const r = await fetch(`${YT_API}/channels?part=contentDetails,id&forHandle=${CHANNEL_HANDLE}&key=${API_KEY}`);
+      const d = await r.json();
+      if (!d.items?.length) throw new Error("Channel not found");
+      return { channelId: d.items[0].id, uploadsId: d.items[0].contentDetails.relatedPlaylists.uploads };
+    }
+
+    async function fetchAllVideos(uploadsId) {
       let videos = [], pageToken = "";
       do {
-        const url = `${YT}/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50${pageToken ? "&pageToken=" + pageToken : ""}&key=${API_KEY}`;
-        const res  = await fetch(url);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        videos    = videos.concat(data.items || []);
-        pageToken = data.nextPageToken || "";
+        const r = await fetch(`${YT_API}/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50${pageToken ? "&pageToken="+pageToken : ""}&key=${API_KEY}`);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message);
+        videos = videos.concat(d.items || []);
+        pageToken = d.nextPageToken || "";
       } while (pageToken);
-
-      // 3. Shape into episode objects (newest first)
       return videos.map((item, i) => {
-        const s   = item.snippet;
-        const num = String(videos.length - i).padStart(3, "0");
-        return {
-          id:      s.resourceId.videoId,
-          num,
-          title:   s.title,
-          date:    new Date(s.publishedAt).toLocaleDateString("en-GB", { month:"short", year:"numeric" }),
-          thumb:   s.thumbnails?.maxres?.url || s.thumbnails?.high?.url || "",
-        };
+        const s = item.snippet;
+        return { id: s.resourceId.videoId, num: String(videos.length - i).padStart(3,"0"), title: s.title,
+          date: new Date(s.publishedAt).toLocaleDateString("en-GB", { month:"short", year:"numeric" }),
+          thumb: s.thumbnails?.maxres?.url || s.thumbnails?.high?.url || "" };
       });
+    }
+
+    async function fetchPlaylists(channelId) {
+      let playlists = [], pageToken = "";
+      do {
+        const r = await fetch(`${YT_API}/playlists?part=snippet&channelId=${channelId}&maxResults=50${pageToken ? "&pageToken="+pageToken : ""}&key=${API_KEY}`);
+        const d = await r.json();
+        playlists = playlists.concat(d.items || []);
+        pageToken = d.nextPageToken || "";
+      } while (pageToken);
+      return playlists.map(p => ({ id: p.id, title: p.snippet.title }));
+    }
+
+    async function fetchPlaylistVideoIds(playlistId) {
+      let ids = [], pageToken = "";
+      do {
+        const r = await fetch(`${YT_API}/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=50${pageToken ? "&pageToken="+pageToken : ""}&key=${API_KEY}`);
+        const d = await r.json();
+        (d.items || []).forEach(it => ids.push(it.snippet.resourceId.videoId));
+        pageToken = d.nextPageToken || "";
+      } while (pageToken);
+      return new Set(ids);
     }
 
     // ── Thumbnail ────────────────────────────────────────────────────
     function Thumb({ url, id, alt }) {
       const [err, setErr] = useState(false);
       const src = url || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-      const s   = { width:"100%", height:"100%", display:"block", objectFit:"cover" };
       return err
-        ? <div style={{ ...s, background:"linear-gradient(145deg,#181818,#2e2e2e)" }} />
-        : <img src={src} alt={alt||""} onError={() => setErr(true)} style={s} />;
+        ? <div style={{ width:"100%", height:"100%", background:"linear-gradient(145deg,#181818,#2e2e2e)" }} />
+        : <img src={src} alt={alt||""} onError={() => setErr(true)} style={{ width:"100%", height:"100%", display:"block", objectFit:"cover" }} />;
     }
 
     // ── Episode card ─────────────────────────────────────────────────
@@ -87,9 +113,7 @@
       return (
         <div className="card">
           <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0", marginBottom:16, position:"relative" }}>
-            <div className="ti" style={{ width:"100%", height:"100%" }}>
-              <Thumb url={ep.thumb} id={ep.id} alt={ep.title} />
-            </div>
+            <div className="ti" style={{ width:"100%", height:"100%" }}><Thumb url={ep.thumb} id={ep.id} alt={ep.title} /></div>
             <div className="ov" style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
               <button className="wbtn" onClick={() => onWatch(ep)} style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>Watch</button>
               <button className="wbtn" onClick={() => onAudio(ep)} style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>{isPlaying ? "⏸" : "♪ Audio"}</button>
@@ -130,41 +154,132 @@
 
     // ── App ──────────────────────────────────────────────────────────
     function App() {
-      const [view,     setView]     = useState("episodes");
-      const [episodes, setEpisodes] = useState([]);
-      const [loading,  setLoading]  = useState(true);
-      const [error,    setError]    = useState(null);
-      const [watchEp,  setWatchEp]  = useState(null);
-      const [audioEp,  setAudioEp]  = useState(null);
-      const [playing,  setPlaying]  = useState(false);
-      const [ready,    setReady]    = useState(false);
-      const iframeRef = useRef(null);
+      const [view,        setView]        = useState("episodes");
+      const [allVideos,   setAllVideos]   = useState([]);
+      const [playlists,   setPlaylists]   = useState([]);
+      const [activePl,    setActivePl]    = useState(null); // null = All
+      const [plCache,     setPlCache]     = useState({});   // playlistId -> Set of videoIds
+      const [plLoading,   setPlLoading]   = useState(false);
+      const [loading,     setLoading]     = useState(true);
+      const [error,       setError]       = useState(null);
+      const [watchEp,     setWatchEp]     = useState(null);
+      const [audioEp,     setAudioEp]     = useState(null);
+      const [playing,     setPlaying]     = useState(false);
+      const [currentTime, setCurrentTime] = useState(0);
+      const [duration,    setDuration]    = useState(0);
+      const [ytReady,     setYtReady]     = useState(false);
+      const playerRef  = useRef(null);
+      const pollRef    = useRef(null);
+      const pendingRef = useRef(null); // video to load once API ready
 
+      // Wait for YT IFrame API
       useEffect(() => {
-        fetchAllVideos()
-          .then(vids => { setEpisodes(vids); setLoading(false); })
-          .catch(e   => { setError(e.message); setLoading(false); });
+        if (window.YT && window.YT.Player) { setYtReady(true); return; }
+        window.onYouTubeIframeAPIReady = () => setYtReady(true);
       }, []);
 
+      // Load channel data
       useEffect(() => {
-        if (!ready) return;
-        try {
-          iframeRef.current?.contentWindow?.postMessage(
-            JSON.stringify({ event:"command", func: playing ? "playVideo":"pauseVideo", args:[] }), "*"
-          );
-        } catch(_) {}
-      }, [playing, ready]);
+        (async () => {
+          try {
+            const { channelId, uploadsId } = await fetchChannel();
+            const [videos, pls] = await Promise.all([fetchAllVideos(uploadsId), fetchPlaylists(channelId)]);
+            setAllVideos(videos);
+            setPlaylists(pls);
+          } catch(e) { setError(e.message); }
+          finally { setLoading(false); }
+        })();
+      }, []);
+
+      // Polling for progress
+      const startPoll = useCallback(() => {
+        clearInterval(pollRef.current);
+        pollRef.current = setInterval(() => {
+          const p = playerRef.current;
+          if (!p || typeof p.getCurrentTime !== "function") return;
+          try { setCurrentTime(p.getCurrentTime()); setDuration(p.getDuration()); } catch(_) {}
+        }, 400);
+      }, []);
+
+      const stopPoll = useCallback(() => clearInterval(pollRef.current), []);
+
+      // Create or reuse YT player
+      const loadAudio = useCallback((ep) => {
+        setAudioEp(ep); setCurrentTime(0); setDuration(0); setPlaying(true);
+        if (!ytReady) { pendingRef.current = ep; return; }
+        if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
+          playerRef.current.loadVideoById(ep.id);
+          startPoll();
+          return;
+        }
+        playerRef.current = new window.YT.Player("yt-player", {
+          videoId: ep.id,
+          playerVars: { autoplay: 1, controls: 0, playsinline: 1 },
+          events: {
+            onReady: () => { startPoll(); },
+            onStateChange: (e) => {
+              const S = window.YT.PlayerState;
+              setPlaying(e.data === S.PLAYING);
+              if (e.data === S.PLAYING) startPoll();
+              else stopPoll();
+            }
+          }
+        });
+      }, [ytReady, startPoll, stopPoll]);
+
+      // If API becomes ready while a video was pending
+      useEffect(() => {
+        if (ytReady && pendingRef.current) { loadAudio(pendingRef.current); pendingRef.current = null; }
+      }, [ytReady, loadAudio]);
+
+      const togglePlay = () => {
+        const p = playerRef.current;
+        if (!p) return;
+        playing ? p.pauseVideo() : p.playVideo();
+      };
+
+      const stopAudio = () => {
+        stopPoll();
+        try { playerRef.current?.stopVideo(); } catch(_) {}
+        setAudioEp(null); setPlaying(false); setCurrentTime(0); setDuration(0);
+      };
 
       const handleAudio = ep => {
-        if (audioEp?.id === ep.id) setPlaying(p => !p);
-        else { setReady(false); setAudioEp(ep); setPlaying(true); }
+        if (audioEp?.id === ep.id) togglePlay();
+        else loadAudio(ep);
       };
-      const stopAudio = () => { setAudioEp(null); setPlaying(false); setReady(false); };
 
-      const latest = episodes[0];
+      const handleSeek = (e) => {
+        if (!duration) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const t    = pct * duration;
+        try { playerRef.current?.seekTo(t, true); } catch(_) {}
+        setCurrentTime(t);
+      };
+
+      // Playlist tab click
+      const handlePlTab = async (plId) => {
+        setActivePl(plId);
+        if (!plId || plCache[plId]) return;
+        setPlLoading(true);
+        try {
+          const ids = await fetchPlaylistVideoIds(plId);
+          setPlCache(c => ({ ...c, [plId]: ids }));
+        } catch(_) {}
+        setPlLoading(false);
+      };
+
+      // Filtered videos
+      const visibleVideos = activePl
+        ? allVideos.filter(v => plCache[activePl]?.has(v.id))
+        : allVideos;
+
+      const latest   = allVideos[0];
+      const progress = duration ? currentTime / duration : 0;
 
       return (
-        <div style={{ minHeight:"100vh", background:"#fff", color:"#111", paddingBottom: audioEp ? 76 : 0 }}>
+        <div style={{ minHeight:"100vh", background:"#fff", color:"#111", paddingBottom: audioEp ? 80 : 0 }}>
 
           {/* HEADER */}
           <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(255,255,255,.96)", backdropFilter:"blur(12px)", borderBottom:"1px solid #ebebeb", height:64, padding:"0 40px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -186,7 +301,6 @@
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:300, gap:16 }}>
                   <div style={{ width:32, height:32, border:"2px solid #ebebeb", borderTopColor:"#111", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
                   <p style={{ fontSize:12, color:"#bbb", letterSpacing:"0.1em", textTransform:"uppercase" }}>Loading episodes…</p>
-                  <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
                 </div>
               )}
 
@@ -194,38 +308,61 @@
                 <div style={{ maxWidth:480, margin:"80px auto", textAlign:"center" }}>
                   <p style={{ fontSize:10, color:"#bbb", letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:12 }}>Could not load episodes</p>
                   <p style={{ fontSize:14, color:"#888" }}>{error}</p>
-                  <p style={{ fontSize:13, color:"#bbb", marginTop:8 }}>Check that your API key is set correctly in <code style={{ background:"#f5f5f5", padding:"2px 6px" }}>index.html</code></p>
                 </div>
               )}
 
               {!loading && !error && latest && <>
-                {/* Hero */}
-                <section style={{ marginBottom:80 }}>
-                  <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:24 }}>Latest Episode</p>
-                  <div style={{ display:"grid", gridTemplateColumns:"1.15fr 0.85fr", gap:56, alignItems:"center" }}>
-                    <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0" }}>
-                      <Thumb url={latest.thumb} id={latest.id} alt={latest.title} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize:108, fontWeight:900, color:"#efefef", lineHeight:.85, marginBottom:20, letterSpacing:"-0.05em", userSelect:"none" }}>{latest.num}</div>
-                      <h1 style={{ fontSize:24, fontWeight:800, lineHeight:1.25, marginBottom:10 }}>{latest.title}</h1>
-                      <p style={{ fontSize:12, color:"#bbb", marginBottom:36 }}>{latest.date}</p>
-                      <div style={{ display:"flex", gap:10 }}>
-                        <button className="btn-w" onClick={() => setWatchEp(latest)} style={{ padding:"11px 26px", background:"#111", color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>Watch</button>
-                        <button className="btn-l" onClick={() => handleAudio(latest)} style={{ padding:"11px 26px", border:"1px solid #ddd", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>{audioEp?.id === latest.id && playing ? "⏸ Pause" : "♪ Listen"}</button>
+                {/* Hero — only on All tab */}
+                {!activePl && (
+                  <section style={{ marginBottom:80 }}>
+                    <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:24 }}>Latest Episode</p>
+                    <div style={{ display:"grid", gridTemplateColumns:"1.15fr 0.85fr", gap:56, alignItems:"center" }}>
+                      <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0" }}><Thumb url={latest.thumb} id={latest.id} alt={latest.title} /></div>
+                      <div>
+                        <div style={{ fontSize:108, fontWeight:900, color:"#efefef", lineHeight:.85, marginBottom:20, letterSpacing:"-0.05em", userSelect:"none" }}>{latest.num}</div>
+                        <h1 style={{ fontSize:24, fontWeight:800, lineHeight:1.25, marginBottom:10 }}>{latest.title}</h1>
+                        <p style={{ fontSize:12, color:"#bbb", marginBottom:36 }}>{latest.date}</p>
+                        <div style={{ display:"flex", gap:10 }}>
+                          <button className="btn-w" onClick={() => setWatchEp(latest)} style={{ padding:"11px 26px", background:"#111", color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>Watch</button>
+                          <button className="btn-l" onClick={() => handleAudio(latest)} style={{ padding:"11px 26px", border:"1px solid #ddd", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>{audioEp?.id === latest.id && playing ? "⏸ Pause" : "♪ Listen"}</button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
+                )}
 
-                <div style={{ borderTop:"1px solid #ebebeb", marginBottom:56 }} />
-                <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:36 }}>All Episodes — {episodes.length} shows</p>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"52px 28px" }}>
-                  {episodes.map(ep => (
-                    <EpCard key={ep.id} ep={ep} onWatch={setWatchEp} onAudio={handleAudio}
-                      isActive={audioEp?.id === ep.id} isPlaying={audioEp?.id === ep.id && playing} />
+                <div style={{ borderTop:"1px solid #ebebeb", marginBottom:0 }} />
+
+                {/* Playlist tabs */}
+                <div style={{ display:"flex", gap:0, overflowX:"auto", borderBottom:"1px solid #ebebeb", marginBottom:48 }}>
+                  {[{ id:null, title:"All" }, ...playlists].map(pl => (
+                    <button key={pl.id||"all"} className="pl-tab" onClick={() => handlePlTab(pl.id)}
+                      style={{ flexShrink:0, padding:"18px 20px", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color: activePl===pl.id ? "#111":"#bbb", borderBottom: activePl===pl.id ? "2px solid #111":"2px solid transparent", marginBottom:"-1px", transition:"color .15s" }}>
+                      {pl.title}
+                    </button>
                   ))}
                 </div>
+
+                {/* Loading playlist */}
+                {plLoading && (
+                  <div style={{ display:"flex", justifyContent:"center", padding:"60px 0" }}>
+                    <div style={{ width:24, height:24, border:"2px solid #ebebeb", borderTopColor:"#111", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
+                  </div>
+                )}
+
+                {!plLoading && (
+                  <>
+                    <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:36 }}>
+                      {activePl ? playlists.find(p=>p.id===activePl)?.title : `All Episodes`} — {visibleVideos.length} shows
+                    </p>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"52px 28px" }}>
+                      {visibleVideos.map(ep => (
+                        <EpCard key={ep.id} ep={ep} onWatch={setWatchEp} onAudio={handleAudio}
+                          isActive={audioEp?.id === ep.id} isPlaying={audioEp?.id === ep.id && playing} />
+                      ))}
+                    </div>
+                  </>
+                )}
               </>}
             </>}
           </main>
@@ -241,26 +378,38 @@
           )}
 
           {/* AUDIO PLAYER */}
-          {audioEp && <>
-            <iframe key={audioEp.id} ref={iframeRef}
-              src={`https://www.youtube.com/embed/${audioEp.id}?enablejsapi=1&autoplay=1&controls=0`}
-              onLoad={() => setReady(true)}
-              style={{ position:"fixed", top:-9999, left:0, width:1, height:1 }}
-              allow="autoplay" title="audio" />
-            <div style={{ position:"fixed", bottom:0, left:0, right:0, height:76, background:"#111", color:"#fff", display:"flex", alignItems:"center", gap:20, padding:"0 40px", zIndex:200, borderTop:"1px solid #1e1e1e" }}>
-              <div style={{ width:44, height:44, flexShrink:0, overflow:"hidden", background:"#222" }}>
-                <Thumb url={audioEp.thumb} id={audioEp.id} alt="" />
+          {audioEp && (
+            <div style={{ position:"fixed", bottom:0, left:0, right:0, background:"#111", color:"#fff", zIndex:200, borderTop:"1px solid #1e1e1e" }}>
+              {/* Progress bar */}
+              <div className="prog-bar" onClick={handleSeek}
+                style={{ height:3, background:"#2a2a2a", position:"relative", cursor:"pointer" }}>
+                <div className="prog-fill" style={{ height:"100%", width:`${progress*100}%`, background:"#666", transition:"width .2s linear", position:"relative" }}>
+                  <div className="prog-dot" style={{ position:"absolute", right:-4, top:"50%", transform:"translateY(-50%)", width:10, height:10, borderRadius:"50%", background:"#fff", opacity:0, transition:"opacity .15s" }} />
+                </div>
               </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <p style={{ fontSize:9, color:"#555", textTransform:"uppercase", letterSpacing:"0.16em", marginBottom:3 }}>Audio Only</p>
-                <p style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{audioEp.title}</p>
+              {/* Controls row */}
+              <div style={{ display:"flex", alignItems:"center", gap:16, padding:"0 32px", height:72 }}>
+                <div style={{ width:42, height:42, flexShrink:0, overflow:"hidden", background:"#222" }}>
+                  <Thumb url={audioEp.thumb} id={audioEp.id} alt="" />
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontSize:9, color:"#555", textTransform:"uppercase", letterSpacing:"0.16em", marginBottom:2 }}>Audio Only</p>
+                  <p style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{audioEp.title}</p>
+                </div>
+                {/* Time */}
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+                  <span style={{ fontSize:11, color:"#888", fontVariantNumeric:"tabular-nums", minWidth:40, textAlign:"right" }}>{fmt(currentTime)}</span>
+                  <span style={{ fontSize:11, color:"#444" }}>/</span>
+                  <span style={{ fontSize:11, color:"#555", fontVariantNumeric:"tabular-nums", minWidth:40 }}>{fmt(duration)}</span>
+                </div>
+                <button onClick={togglePlay}
+                  style={{ width:40, height:40, borderRadius:"50%", border:"1px solid #333", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>
+                  {playing ? "⏸" : "▶"}
+                </button>
+                <button onClick={stopAudio} style={{ color:"#444", fontSize:26, fontWeight:300, lineHeight:1, flexShrink:0 }}>×</button>
               </div>
-              <button onClick={() => setPlaying(p => !p)} style={{ width:44, height:44, borderRadius:"50%", border:"1px solid #333", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, flexShrink:0 }}>
-                {playing ? "⏸" : "▶"}
-              </button>
-              <button onClick={stopAudio} style={{ color:"#444", fontSize:28, fontWeight:300, lineHeight:1, flexShrink:0 }}>×</button>
             </div>
-          </>}
+          )}
         </div>
       );
     }
