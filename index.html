@@ -322,7 +322,7 @@
                         <div style={{ fontSize:108, fontWeight:900, color:"#efefef", lineHeight:.85, marginBottom:20, letterSpacing:"-0.05em", userSelect:"none" }}>{latest.num}</div>
                         <h1 style={{ fontSize:24, fontWeight:800, lineHeight:1.25, marginBottom:10 }}>{latest.title}</h1>
                         <p style={{ fontSize:12, color:"#bbb", marginBottom:36 }}>{latest.date}</p>
-                        <div style={{ display:"flex", gap:10 }}>
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
                           <button className="btn-w" onClick={() => setWatchEp(latest)} style={{ padding:"11px 26px", background:"#111", color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>Watch</button>
                           <button className="btn-l" onClick={() => handleAudio(latest)} style={{ padding:"11px 26px", border:"1px solid #ddd", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>{audioEp?.id === latest.id && playing ? "⏸ Pause" : "♪ Listen"}</button>
                         </div>
@@ -330,6 +330,20 @@
                     </div>
                   </section>
                 )}
+
+                {/* Random set button */}
+                <div style={{ margin:"0 0 56px", display:"flex", justifyContent:"center" }}>
+                  <button onClick={() => {
+                    const pool = allVideos.filter(v => v.id !== audioEp?.id);
+                    const pick = pool[Math.floor(Math.random() * pool.length)];
+                    if (pick) loadAudio(pick);
+                  }}
+                  style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 32px", border:"1px solid #e0e0e0", background:"#fafafa", fontSize:12, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", cursor:"pointer", transition:"all .15s" }}
+                  onMouseEnter={e => { e.currentTarget.style.background="#111"; e.currentTarget.style.color="#fff"; e.currentTarget.style.borderColor="#111"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background="#fafafa"; e.currentTarget.style.color="#111"; e.currentTarget.style.borderColor="#e0e0e0"; }}>
+                    <span style={{ fontSize:18 }}>⟳</span> I'm bored — play me a random set
+                  </button>
+                </div>
 
                 <div style={{ borderTop:"1px solid #ebebeb", marginBottom:0 }} />
 
