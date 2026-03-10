@@ -1,493 +1,271 @@
 <!DOCTYPE html>
-
 <html lang="en">
-
 <head>
-
   <meta charset="UTF-8" />
-
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <title>85 Collective</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-
   <style>
-
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     body { font-family: 'Inter', -apple-system, sans-serif; background: #fff; color: #111; }
-
     button { cursor: pointer; border: none; background: none; font-family: inherit; color: inherit; }
-
     a { color: inherit; text-decoration: none; }
-
     .card .ov { opacity: 0; transition: opacity .2s; }
-
     .card:hover .ov { opacity: 1; }
-
     .card .ti { transition: transform .4s ease; }
-
     .card:hover .ti { transform: scale(1.05); }
-
     .nb { transition: color .15s; }
-
     .nb:hover { color: #111 !important; }
-
     .btn-w:hover { background: #333 !important; }
-
     .btn-l:hover { background: #f5f5f5 !important; }
-
     .wbtn:hover { background: rgba(255,255,255,.15) !important; }
-
   </style>
-
 </head>
-
 <body>
-
   <div id="root"></div>
-
   <script type="text/babel">
-
     const { useState, useRef, useEffect } = React;
 
+    // ── YOUR CONFIG ───────────────────────────────────────────────────
+    const API_KEY       = "AIzaSyCzTFNBhEJJXsWo8TMPlDUQkEEaw5cRAGs";   // ← paste your key here
+    const CHANNEL_HANDLE = "@85collective";          // ← your channel handle
+    const CHANNEL_URL    = "https://www.youtube.com/@85collective";
+    // ─────────────────────────────────────────────────────────────────
 
+    const YT = "https://www.googleapis.com/youtube/v3";
 
-    const CHANNEL_URL = "https://www.youtube.com/@85collective";
+    async function fetchAllVideos() {
+      // 1. Get uploads playlist ID
+      const chRes = await fetch(
+        `${YT}/channels?part=contentDetails&forHandle=${CHANNEL_HANDLE}&key=${API_KEY}`
+      );
+      const chData = await chRes.json();
+      if (!chData.items?.length) throw new Error("Channel not found");
+      const uploadsId = chData.items[0].contentDetails.relatedPlaylists.uploads;
 
+      // 2. Page through all videos in uploads playlist
+      let videos = [], pageToken = "";
+      do {
+        const url = `${YT}/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50${pageToken ? "&pageToken=" + pageToken : ""}&key=${API_KEY}`;
+        const res  = await fetch(url);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        videos    = videos.concat(data.items || []);
+        pageToken = data.nextPageToken || "";
+      } while (pageToken);
 
+      // 3. Shape into episode objects (newest first)
+      return videos.map((item, i) => {
+        const s   = item.snippet;
+        const num = String(videos.length - i).padStart(3, "0");
+        return {
+          id:      s.resourceId.videoId,
+          num,
+          title:   s.title,
+          date:    new Date(s.publishedAt).toLocaleDateString("en-GB", { month:"short", year:"numeric" }),
+          thumb:   s.thumbnails?.maxres?.url || s.thumbnails?.high?.url || "",
+        };
+      });
+    }
 
-    // ── Replace with your real YouTube video IDs ──────────────────
-
-    const EPISODES = [
-
-      { id: "VIDEO_ID_1", num: "001", title: "Radio Show #001", artists: ["Artist A", "Artist B"], date: "Jan 2025", dur: "1:02:34" },
-
-      { id: "VIDEO_ID_2", num: "002", title: "Radio Show #002", artists: ["Artist C"],             date: "Feb 2025", dur: "58:12"  },
-
-      { id: "VIDEO_ID_3", num: "003", title: "Radio Show #003", artists: ["Artist D", "Artist E"], date: "Mar 2025", dur: "1:10:05" },
-
-      { id: "VIDEO_ID_4", num: "004", title: "Radio Show #004", artists: ["Artist F"],             date: "Apr 2025", dur: "55:44"  },
-
-      { id: "VIDEO_ID_5", num: "005", title: "Radio Show #005", artists: ["Artist G", "Artist H"], date: "May 2025", dur: "1:04:20" },
-
-      { id: "VIDEO_ID_6", num: "006", title: "Radio Show #006", artists: ["Artist I"],             date: "Jun 2025", dur: "1:01:07" },
-
-    ];
-
-    // ─────────────────────────────────────────────────────────────
-
-
-
-    const ytThumb = id => `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-
-
-
-    function Thumb({ id, alt }) {
-
+    // ── Thumbnail ────────────────────────────────────────────────────
+    function Thumb({ url, id, alt }) {
       const [err, setErr] = useState(false);
-
-      const s = { width:"100%", height:"100%", display:"block" };
-
+      const src = url || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+      const s   = { width:"100%", height:"100%", display:"block", objectFit:"cover" };
       return err
-
         ? <div style={{ ...s, background:"linear-gradient(145deg,#181818,#2e2e2e)" }} />
-
-        : <img src={ytThumb(id)} alt={alt||""} onError={() => setErr(true)} style={{ ...s, objectFit:"cover" }} />;
-
+        : <img src={src} alt={alt||""} onError={() => setErr(true)} style={s} />;
     }
 
-
-
+    // ── Episode card ─────────────────────────────────────────────────
     function EpCard({ ep, onWatch, onAudio, isActive, isPlaying }) {
-
       return (
-
         <div className="card">
-
           <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0", marginBottom:16, position:"relative" }}>
-
             <div className="ti" style={{ width:"100%", height:"100%" }}>
-
-              <Thumb id={ep.id} alt={ep.title} />
-
+              <Thumb url={ep.thumb} id={ep.id} alt={ep.title} />
             </div>
-
             <div className="ov" style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-
-              <button className="wbtn" onClick={() => onWatch(ep)}
-
-                style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>
-
-                Watch
-
-              </button>
-
-              <button className="wbtn" onClick={() => onAudio(ep)}
-
-                style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>
-
-                {isPlaying ? "⏸" : "♪ Audio"}
-
-              </button>
-
+              <button className="wbtn" onClick={() => onWatch(ep)} style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>Watch</button>
+              <button className="wbtn" onClick={() => onAudio(ep)} style={{ color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", padding:"8px 16px", border:"1px solid rgba(255,255,255,.35)", background:"transparent" }}>{isPlaying ? "⏸" : "♪ Audio"}</button>
             </div>
-
           </div>
-
           <div style={{ display:"flex", alignItems:"baseline", gap:10, marginBottom:5 }}>
-
             <span style={{ fontSize:9, fontWeight:700, color:"#ccc", letterSpacing:"0.12em", textTransform:"uppercase", flexShrink:0 }}>EP {ep.num}</span>
-
-            <span style={{ fontSize:15, fontWeight:700, lineHeight:1.3 }}>{ep.title}</span>
-
+            <span style={{ fontSize:14, fontWeight:700, lineHeight:1.3 }}>{ep.title}</span>
           </div>
-
-          <p style={{ fontSize:13, color:"#666", marginBottom:3 }}>{ep.artists.join(", ")}</p>
-
-          <p style={{ fontSize:11, color:"#bbb" }}>{ep.date} · {ep.dur}</p>
-
-          <div style={{ display:"flex", gap:14, marginTop:12 }}>
-
+          <p style={{ fontSize:11, color:"#bbb", marginBottom:10 }}>{ep.date}</p>
+          <div style={{ display:"flex", gap:14 }}>
             <button onClick={() => onWatch(ep)} style={{ fontSize:11, fontWeight:700, color:"#888", letterSpacing:"0.06em", textTransform:"uppercase", borderBottom:"1px solid #ddd", paddingBottom:1 }}>Watch</button>
-
-            <button onClick={() => onAudio(ep)} style={{ fontSize:11, fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", paddingBottom:1, borderBottom:`1px solid ${isActive?"#111":"#ddd"}`, color:isActive?"#111":"#888" }}>
-
-              {isPlaying ? "⏸ Pause" : "♪ Listen"}
-
-            </button>
-
+            <button onClick={() => onAudio(ep)} style={{ fontSize:11, fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", paddingBottom:1, borderBottom:`1px solid ${isActive?"#111":"#ddd"}`, color:isActive?"#111":"#888" }}>{isPlaying ? "⏸ Pause" : "♪ Listen"}</button>
           </div>
-
         </div>
-
       );
-
     }
 
-
-
+    // ── About ────────────────────────────────────────────────────────
     function About() {
-
       return (
-
         <div style={{ maxWidth:580 }}>
-
           <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:24 }}>About</p>
-
-          <h1 style={{ fontSize:46, fontWeight:900, letterSpacing:"-0.04em", lineHeight:1.08, marginBottom:48 }}>
-
-            A platform for<br/>local electronic music.
-
-          </h1>
-
+          <h1 style={{ fontSize:46, fontWeight:900, letterSpacing:"-0.04em", lineHeight:1.08, marginBottom:48 }}>A platform for<br/>local electronic music.</h1>
           <div style={{ borderTop:"1px solid #ebebeb", paddingTop:40 }}>
-
-            {[
-
-              "85 Collective is a monthly radio show dedicated to amplifying the voices of local electronic artists. Each episode is a curated journey through the underground — mixes, live sets, and original productions from artists who deserve to be heard.",
-
+            {["85 Collective is a monthly radio show dedicated to amplifying the voices of local electronic artists. Each episode is a curated journey through the underground — mixes, live sets, and original productions from artists who deserve to be heard.",
               "We believe local scenes are the lifeblood of electronic music. Our mission is simple: give those scenes a platform, remove the barriers, and let the music speak.",
-
-              "New episodes drop every month. If you're a local artist and want to be featured, reach out.",
-
-            ].map((txt, i) => (
-
-              <p key={i} style={{ fontSize:16, lineHeight:1.85, color:"#444", marginBottom: i < 2 ? 24 : 48 }}>{txt}</p>
-
-            ))}
-
+              "New episodes drop every month. If you're a local artist and want to be featured, reach out."
+            ].map((t, i) => <p key={i} style={{ fontSize:16, lineHeight:1.85, color:"#444", marginBottom: i < 2 ? 24 : 48 }}>{t}</p>)}
           </div>
-
           <div style={{ borderTop:"1px solid #ebebeb", paddingTop:32 }}>
-
             <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:20 }}>Find Us</p>
-
-            <a href={CHANNEL_URL} target="_blank" rel="noopener noreferrer"
-
-              style={{ fontSize:14, fontWeight:700, letterSpacing:"0.04em", borderBottom:"1px solid #111", paddingBottom:2, display:"inline-block" }}>
-
-              YouTube ↗
-
-            </a>
-
+            <a href={CHANNEL_URL} target="_blank" rel="noopener noreferrer" style={{ fontSize:14, fontWeight:700, letterSpacing:"0.04em", borderBottom:"1px solid #111", paddingBottom:2, display:"inline-block" }}>YouTube ↗</a>
           </div>
-
         </div>
-
       );
-
     }
 
-
-
+    // ── App ──────────────────────────────────────────────────────────
     function App() {
-
-      const [view,    setView]    = useState("episodes");
-
-      const [watchEp, setWatchEp] = useState(null);
-
-      const [audioEp, setAudioEp] = useState(null);
-
-      const [playing, setPlaying] = useState(false);
-
-      const [ready,   setReady]   = useState(false);
-
+      const [view,     setView]     = useState("episodes");
+      const [episodes, setEpisodes] = useState([]);
+      const [loading,  setLoading]  = useState(true);
+      const [error,    setError]    = useState(null);
+      const [watchEp,  setWatchEp]  = useState(null);
+      const [audioEp,  setAudioEp]  = useState(null);
+      const [playing,  setPlaying]  = useState(false);
+      const [ready,    setReady]    = useState(false);
       const iframeRef = useRef(null);
 
-
+      useEffect(() => {
+        fetchAllVideos()
+          .then(vids => { setEpisodes(vids); setLoading(false); })
+          .catch(e   => { setError(e.message); setLoading(false); });
+      }, []);
 
       useEffect(() => {
-
         if (!ready) return;
-
         try {
-
           iframeRef.current?.contentWindow?.postMessage(
-
             JSON.stringify({ event:"command", func: playing ? "playVideo":"pauseVideo", args:[] }), "*"
-
           );
-
         } catch(_) {}
-
       }, [playing, ready]);
 
-
-
       const handleAudio = ep => {
-
-        if (audioEp?.id === ep.id) { setPlaying(p => !p); }
-
+        if (audioEp?.id === ep.id) setPlaying(p => !p);
         else { setReady(false); setAudioEp(ep); setPlaying(true); }
-
       };
-
       const stopAudio = () => { setAudioEp(null); setPlaying(false); setReady(false); };
 
-
-
-      const latest  = EPISODES[EPISODES.length - 1];
-
-      const allDesc = [...EPISODES].reverse();
-
-
+      const latest = episodes[0];
 
       return (
-
         <div style={{ minHeight:"100vh", background:"#fff", color:"#111", paddingBottom: audioEp ? 76 : 0 }}>
 
-
-
           {/* HEADER */}
-
           <header style={{ position:"sticky", top:0, zIndex:100, background:"rgba(255,255,255,.96)", backdropFilter:"blur(12px)", borderBottom:"1px solid #ebebeb", height:64, padding:"0 40px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-
-            <button onClick={() => setView("episodes")} style={{ fontWeight:800, fontSize:13, letterSpacing:"0.22em", textTransform:"uppercase" }}>
-
-              85 Collective
-
-            </button>
-
+            <button onClick={() => setView("episodes")} style={{ fontWeight:800, fontSize:13, letterSpacing:"0.22em", textTransform:"uppercase" }}>85 Collective</button>
             <nav style={{ display:"flex", gap:28, fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", alignItems:"center" }}>
-
               {["episodes","about"].map(v => (
-
-                <button key={v} className="nb" onClick={() => setView(v)}
-
-                  style={{ color:view===v?"#111":"#bbb", paddingBottom:2, borderBottom:view===v?"1.5px solid #111":"1.5px solid transparent" }}>
-
-                  {v}
-
-                </button>
-
+                <button key={v} className="nb" onClick={() => setView(v)} style={{ color:view===v?"#111":"#bbb", paddingBottom:2, borderBottom:view===v?"1.5px solid #111":"1.5px solid transparent" }}>{v}</button>
               ))}
-
               <a href={CHANNEL_URL} target="_blank" rel="noopener noreferrer" className="nb" style={{ color:"#bbb" }}>YouTube ↗</a>
-
             </nav>
-
           </header>
 
-
-
           {/* MAIN */}
-
           <main style={{ maxWidth:1080, margin:"0 auto", padding:"60px 40px" }}>
-
-            {view === "episodes" && <>
-
-              {/* Hero */}
-
-              <section style={{ marginBottom:80 }}>
-
-                <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:24 }}>Latest Episode</p>
-
-                <div style={{ display:"grid", gridTemplateColumns:"1.15fr 0.85fr", gap:56, alignItems:"center" }}>
-
-                  <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0" }}>
-
-                    <Thumb id={latest.id} alt={latest.title} />
-
-                  </div>
-
-                  <div>
-
-                    <div style={{ fontSize:108, fontWeight:900, color:"#efefef", lineHeight:.85, marginBottom:20, letterSpacing:"-0.05em", userSelect:"none" }}>{latest.num}</div>
-
-                    <h1 style={{ fontSize:26, fontWeight:800, lineHeight:1.2, marginBottom:10 }}>{latest.title}</h1>
-
-                    <p style={{ fontSize:14, color:"#555", marginBottom:6 }}>{latest.artists.join(", ")}</p>
-
-                    <p style={{ fontSize:12, color:"#bbb", marginBottom:36 }}>{latest.date} · {latest.dur}</p>
-
-                    <div style={{ display:"flex", gap:10 }}>
-
-                      <button className="btn-w" onClick={() => setWatchEp(latest)}
-
-                        style={{ padding:"11px 26px", background:"#111", color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>
-
-                        Watch
-
-                      </button>
-
-                      <button className="btn-l" onClick={() => handleAudio(latest)}
-
-                        style={{ padding:"11px 26px", border:"1px solid #ddd", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>
-
-                        {audioEp?.id === latest.id && playing ? "⏸ Pause" : "♪ Listen"}
-
-                      </button>
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-              </section>
-
-
-
-              <div style={{ borderTop:"1px solid #ebebeb", marginBottom:56 }} />
-
-
-
-              <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:36 }}>All Episodes</p>
-
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"52px 28px" }}>
-
-                {allDesc.map(ep => (
-
-                  <EpCard key={ep.id} ep={ep} onWatch={setWatchEp} onAudio={handleAudio}
-
-                    isActive={audioEp?.id === ep.id} isPlaying={audioEp?.id === ep.id && playing} />
-
-                ))}
-
-              </div>
-
-            </>}
-
             {view === "about" && <About />}
 
+            {view === "episodes" && <>
+              {loading && (
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:300, gap:16 }}>
+                  <div style={{ width:32, height:32, border:"2px solid #ebebeb", borderTopColor:"#111", borderRadius:"50%", animation:"spin 0.7s linear infinite" }} />
+                  <p style={{ fontSize:12, color:"#bbb", letterSpacing:"0.1em", textTransform:"uppercase" }}>Loading episodes…</p>
+                  <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                </div>
+              )}
+
+              {error && (
+                <div style={{ maxWidth:480, margin:"80px auto", textAlign:"center" }}>
+                  <p style={{ fontSize:10, color:"#bbb", letterSpacing:"0.14em", textTransform:"uppercase", marginBottom:12 }}>Could not load episodes</p>
+                  <p style={{ fontSize:14, color:"#888" }}>{error}</p>
+                  <p style={{ fontSize:13, color:"#bbb", marginTop:8 }}>Check that your API key is set correctly in <code style={{ background:"#f5f5f5", padding:"2px 6px" }}>index.html</code></p>
+                </div>
+              )}
+
+              {!loading && !error && latest && <>
+                {/* Hero */}
+                <section style={{ marginBottom:80 }}>
+                  <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:24 }}>Latest Episode</p>
+                  <div style={{ display:"grid", gridTemplateColumns:"1.15fr 0.85fr", gap:56, alignItems:"center" }}>
+                    <div style={{ aspectRatio:"16/9", overflow:"hidden", background:"#f0f0f0" }}>
+                      <Thumb url={latest.thumb} id={latest.id} alt={latest.title} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:108, fontWeight:900, color:"#efefef", lineHeight:.85, marginBottom:20, letterSpacing:"-0.05em", userSelect:"none" }}>{latest.num}</div>
+                      <h1 style={{ fontSize:24, fontWeight:800, lineHeight:1.25, marginBottom:10 }}>{latest.title}</h1>
+                      <p style={{ fontSize:12, color:"#bbb", marginBottom:36 }}>{latest.date}</p>
+                      <div style={{ display:"flex", gap:10 }}>
+                        <button className="btn-w" onClick={() => setWatchEp(latest)} style={{ padding:"11px 26px", background:"#111", color:"#fff", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>Watch</button>
+                        <button className="btn-l" onClick={() => handleAudio(latest)} style={{ padding:"11px 26px", border:"1px solid #ddd", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>{audioEp?.id === latest.id && playing ? "⏸ Pause" : "♪ Listen"}</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <div style={{ borderTop:"1px solid #ebebeb", marginBottom:56 }} />
+                <p style={{ fontSize:10, fontWeight:700, letterSpacing:"0.22em", textTransform:"uppercase", color:"#bbb", marginBottom:36 }}>All Episodes — {episodes.length} shows</p>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"52px 28px" }}>
+                  {episodes.map(ep => (
+                    <EpCard key={ep.id} ep={ep} onWatch={setWatchEp} onAudio={handleAudio}
+                      isActive={audioEp?.id === ep.id} isPlaying={audioEp?.id === ep.id && playing} />
+                  ))}
+                </div>
+              </>}
+            </>}
           </main>
 
-
-
           {/* WATCH MODAL */}
-
           {watchEp && (
-
             <div onClick={() => setWatchEp(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.93)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center" }}>
-
               <div onClick={e => e.stopPropagation()} style={{ width:"min(92vw,960px)", aspectRatio:"16/9" }}>
-
-                <iframe src={`https://www.youtube.com/embed/${watchEp.id}?autoplay=1`}
-
-                  style={{ width:"100%", height:"100%", border:"none" }}
-
-                  allow="autoplay;fullscreen" allowFullScreen />
-
+                <iframe src={`https://www.youtube.com/embed/${watchEp.id}?autoplay=1`} style={{ width:"100%", height:"100%", border:"none" }} allow="autoplay;fullscreen" allowFullScreen />
               </div>
-
               <button onClick={() => setWatchEp(null)} style={{ position:"absolute", top:18, right:24, color:"#fff", fontSize:36, opacity:.5, lineHeight:1, fontWeight:300 }}>×</button>
-
             </div>
-
           )}
 
-
-
           {/* AUDIO PLAYER */}
-
           {audioEp && <>
-
             <iframe key={audioEp.id} ref={iframeRef}
-
               src={`https://www.youtube.com/embed/${audioEp.id}?enablejsapi=1&autoplay=1&controls=0`}
-
               onLoad={() => setReady(true)}
-
               style={{ position:"fixed", top:-9999, left:0, width:1, height:1 }}
-
               allow="autoplay" title="audio" />
-
             <div style={{ position:"fixed", bottom:0, left:0, right:0, height:76, background:"#111", color:"#fff", display:"flex", alignItems:"center", gap:20, padding:"0 40px", zIndex:200, borderTop:"1px solid #1e1e1e" }}>
-
               <div style={{ width:44, height:44, flexShrink:0, overflow:"hidden", background:"#222" }}>
-
-                <Thumb id={audioEp.id} alt="" />
-
+                <Thumb url={audioEp.thumb} id={audioEp.id} alt="" />
               </div>
-
               <div style={{ flex:1, minWidth:0 }}>
-
                 <p style={{ fontSize:9, color:"#555", textTransform:"uppercase", letterSpacing:"0.16em", marginBottom:3 }}>Audio Only</p>
-
                 <p style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{audioEp.title}</p>
-
-                <p style={{ fontSize:11, color:"#666" }}>{audioEp.artists.join(", ")}</p>
-
               </div>
-
-              <button onClick={() => setPlaying(p => !p)}
-
-                style={{ width:44, height:44, borderRadius:"50%", border:"1px solid #333", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, flexShrink:0 }}>
-
+              <button onClick={() => setPlaying(p => !p)} style={{ width:44, height:44, borderRadius:"50%", border:"1px solid #333", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, flexShrink:0 }}>
                 {playing ? "⏸" : "▶"}
-
               </button>
-
               <button onClick={stopAudio} style={{ color:"#444", fontSize:28, fontWeight:300, lineHeight:1, flexShrink:0 }}>×</button>
-
             </div>
-
           </>}
-
         </div>
-
       );
-
     }
 
-
-
-    const root = ReactDOM.createRoot(document.getElementById("root"));
-
-    root.render(<App />);
-
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   </script>
-
 </body>
-
 </html>
