@@ -158,6 +158,7 @@
       const [allVideos,   setAllVideos]   = useState([]);
       const [playlists,   setPlaylists]   = useState([]);
       const [activePl,    setActivePl]    = useState(null); // null = All
+      const [activeGenre, setActiveGenre] = useState(null); // null = all genres
       const [plCache,     setPlCache]     = useState({});   // playlistId -> Set of videoIds
       const [plLoading,   setPlLoading]   = useState(false);
       const [loading,     setLoading]     = useState(true);
@@ -258,9 +259,11 @@
         setCurrentTime(t);
       };
 
-      // Playlist tab click
-      const handlePlTab = async (plId) => {
-        setActivePl(plId);
+      // Split playlists into main (Lounge Sessions) and genre
+      const mainPlaylists  = playlists.filter(p => p.title.toLowerCase().includes("lounge sessions"));
+      const genrePlaylists = playlists.filter(p => !p.title.toLowerCase().includes("lounge sessions"));
+
+      const loadPlaylist = async (plId) => {
         if (!plId || plCache[plId]) return;
         setPlLoading(true);
         try {
@@ -270,10 +273,24 @@
         setPlLoading(false);
       };
 
-      // Filtered videos
-      const visibleVideos = activePl
-        ? allVideos.filter(v => plCache[activePl]?.has(v.id))
-        : allVideos;
+      const handlePlTab = async (plId) => {
+        setActivePl(plId);
+        setActiveGenre(null);
+        await loadPlaylist(plId);
+      };
+
+      const handleGenre = async (plId) => {
+        const next = activeGenre === plId ? null : plId;
+        setActiveGenre(next);
+        if (next) await loadPlaylist(next);
+      };
+
+      // Filtered videos — intersect main + genre if both active
+      const visibleVideos = allVideos.filter(v => {
+        const inMain  = !activePl  || plCache[activePl]?.has(v.id);
+        const inGenre = !activeGenre || plCache[activeGenre]?.has(v.id);
+        return inMain && inGenre;
+      });
 
       const latest   = allVideos[0];
       const progress = duration ? currentTime / duration : 0;
@@ -347,15 +364,28 @@
 
                 <div style={{ borderTop:"1px solid #ebebeb", marginBottom:0 }} />
 
-                {/* Playlist tabs */}
-                <div style={{ display:"flex", gap:0, overflowX:"auto", borderBottom:"1px solid #ebebeb", marginBottom:48 }}>
-                  {[{ id:null, title:"All" }, ...playlists].map(pl => (
+                {/* Main playlist tabs */}
+                <div style={{ display:"flex", gap:0, overflowX:"auto", borderBottom:"1px solid #ebebeb", marginBottom:0 }}>
+                  {[{ id:null, title:"All" }, ...mainPlaylists].map(pl => (
                     <button key={pl.id||"all"} className="pl-tab" onClick={() => handlePlTab(pl.id)}
                       style={{ flexShrink:0, padding:"18px 20px", fontSize:11, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color: activePl===pl.id ? "#111":"#bbb", borderBottom: activePl===pl.id ? "2px solid #111":"2px solid transparent", marginBottom:"-1px", transition:"color .15s" }}>
                       {pl.title}
                     </button>
                   ))}
                 </div>
+
+                {/* Genre pills */}
+                {genrePlaylists.length > 0 && (
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", padding:"20px 0 36px" }}>
+                    {genrePlaylists.map(pl => (
+                      <button key={pl.id} onClick={() => handleGenre(pl.id)}
+                        style={{ padding:"6px 14px", fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", borderRadius:999, border: activeGenre===pl.id ? "1px solid #111":"1px solid #e0e0e0", background: activeGenre===pl.id ? "#111":"transparent", color: activeGenre===pl.id ? "#fff":"#888", transition:"all .15s", cursor:"pointer" }}>
+                        {pl.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {genrePlaylists.length === 0 && <div style={{ marginBottom:36 }} />}
 
                 {/* Loading playlist */}
                 {plLoading && (
